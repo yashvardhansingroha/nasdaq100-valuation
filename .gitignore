@@ -15,3 +15,9 @@ data/cache/*
 database/history.db
 reports/*
 !reports/.gitkeep
+meta_portfolio/data/*
+!meta_portfolio/data/.gitkeep
+*.png
+# Keep finance deliverables tracked; ignore only regenerated binary caches if needed
+# (xlsx/pdf are produced by `python -m meta_portfolio` and may be committed)
+
