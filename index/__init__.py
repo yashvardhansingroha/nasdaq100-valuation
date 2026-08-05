@@ -1,0 +1,1 @@
+"""Index aggregation modules."""
