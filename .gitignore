@@ -17,6 +17,8 @@ reports/*
 !reports/.gitkeep
 meta_portfolio/data/*
 !meta_portfolio/data/.gitkeep
+credit_risk/output/*
+!credit_risk/output/.gitkeep
 *.png
 # Keep finance deliverables tracked; ignore only regenerated binary caches if needed
 # (xlsx/pdf are produced by `python -m meta_portfolio` and may be committed)
