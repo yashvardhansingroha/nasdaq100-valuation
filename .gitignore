@@ -12,6 +12,11 @@ venv/
 logs/*.log
 data/cache/*
 !data/cache/.gitkeep
+
+firstclub/data/*
+!firstclub/data/.gitkeep
+firstclub/output/*
+!firstclub/output/.gitkeep
 database/history.db
 reports/*
 !reports/.gitkeep

@@ -104,6 +104,29 @@ Independent research case study on multi-strategy portfolio allocation (portfoli
 
 See [`meta_portfolio/reports/QUANT_CLUB.md`](meta_portfolio/reports/QUANT_CLUB.md) and [`allocation_memo.pdf`](meta_portfolio/reports/allocation_memo.pdf).
 
+## FirstClub Funnel Teardown
+
+End-to-end product teardown of FirstClub's install-to-first-order funnel: App Store review synthesis, 1.2M+ order dataset analysis, competitive benchmarks (Blinkit, Zepto, Instamart), 8 ICE-scored growth experiments, and CAC/LTV simulator at 1M-order scale.
+
+```bash
+# Run analytics pipeline (generates synthetic 1.2M order dataset)
+python -m firstclub
+
+# Interactive dashboard
+streamlit run dashboard/firstclub.py
+```
+
+Deliverables in [`firstclub/reports/`](firstclub/reports/):
+
+| File | Purpose |
+|------|---------|
+| `GROWTH_MEMO.md` | Executive summary of funnel gaps |
+| `ROADMAP_30_60_90.md` | Phased growth roadmap |
+| `EVENT_TAXONOMY.md` | Analytics event schema |
+| `CITY_LAUNCH_PLAYBOOK.md` | City expansion runbook |
+| `INTERVIEW_PREP.md` | 60-sec pitch + Q&A |
+| `prds/` | 8 mini PRDs (one per ICE experiment) |
+
 ## License
 
 Private research tool — not financial advice.
