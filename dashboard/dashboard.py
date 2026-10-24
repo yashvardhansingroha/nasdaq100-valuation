@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
 from datetime import date
 
 import pandas as pd
@@ -9,9 +11,14 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 import config
 from index.sector_analysis import analyze_sectors
 from utils.history_queries import HistoryQueries
+
 
 st.set_page_config(
     page_title="NASDAQ-100 Intrinsic Value",

@@ -18,24 +18,46 @@ from utils.models import ConstituentInfo
 
 logger = setup_logging(__name__)
 
-WIKIPEDIA_URL = "https://en.wikipedia.org/wiki/Nasdaq-100"
+WIKIPEDIA_URLS = [
+    "https://en.wikipedia.org/wiki/List_of_NASDAQ-100_companies",
+    "https://en.wikipedia.org/wiki/Nasdaq-100",
+]
+
+FALLBACK_NASDAQ100_TICKERS = [
+    "AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "GOOG", "TSLA", "AVGO", "COST",
+    "PEP", "ADBE", "CSCO", "TMUS", "AMD", "NFLX", "INTU", "QCOM", "AMGN", "TXN",
+    "HON", "AMAT", "BKNG", "ISRG", "VRTX", "ADP", "PANW", "MDLZ", "REGN", "LRCX",
+    "GILD", "MU", "SBUX", "SNPS", "CDNS", "MELI", "KLAC", "CTAS", "CSX", "PYPL",
+    "ORLY", "MAR", "ASML", "INTC", "PCAR", "MNST", "ROST", "PAYX", "IDXX", "ADSK",
+    "KDP", "AEP", "CPRT", "LULU", "AZN", "CHTR", "ODFL", "FAST", "NXPI", "MCHP",
+    "MARA", "FTNT", "EXC", "BKR", "KHC", "VRSK", "DDOG", "GEHC", "CRWD", "ANSS",
+    "ON", "CTSH", "CDW", "CEG", "MDB", "BIIB", "CSGP", "TEAM", "DXCM", "FANG",
+    "GFS", "TTD", "DLTR", "ILMN", "WBD", "WDAY", "PDD", "SMCI", "LIN", "ARM"
+]
 
 
 def _fetch_tickers_from_wikipedia() -> list[str]:
-    """Scrape NASDAQ-100 tickers from Wikipedia."""
-    headers = {"User-Agent": "Mozilla/5.0 (compatible; NASDAQ100Valuation/1.0)"}
-    response = requests.get(WIKIPEDIA_URL, headers=headers, timeout=30)
-    response.raise_for_status()
-    tables = pd.read_html(io.StringIO(response.text))
-    for table in tables:
-        for col in table.columns:
-            col_str = str(col).lower()
-            if "ticker" in col_str or "symbol" in col_str:
-                tickers = table[col].dropna().astype(str).str.strip().tolist()
-                tickers = [t.replace(".", "-") for t in tickers if t and t != "nan"]
-                if len(tickers) >= 90:
-                    return tickers
-    raise ValueError("Could not find NASDAQ-100 ticker table on Wikipedia")
+    """Scrape NASDAQ-100 tickers from Wikipedia with fallback."""
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+    for url in WIKIPEDIA_URLS:
+        try:
+            response = requests.get(url, headers=headers, timeout=15)
+            response.raise_for_status()
+            tables = pd.read_html(io.StringIO(response.text))
+            for table in tables:
+                for col in table.columns:
+                    col_str = str(col).lower()
+                    if "ticker" in col_str or "symbol" in col_str:
+                        tickers = table[col].dropna().astype(str).str.strip().tolist()
+                        tickers = [t.replace(".", "-") for t in tickers if t and t != "nan"]
+                        if len(tickers) >= 90:
+                            return tickers
+        except Exception as e:
+            logger.warning("Failed to fetch constituents from %s: %s", url, e)
+
+    logger.warning("Using fallback static list for NASDAQ-100 constituents")
+    return FALLBACK_NASDAQ100_TICKERS
+
 
 
 def _is_cache_valid(path: Path) -> bool:

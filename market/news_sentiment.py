@@ -1,61 +1,50 @@
-"""News sentiment analysis — separate from intrinsic value."""
+"""Deterministic news sentiment in [-1.0, +1.0] — offline, no live API.
+
+The same (ticker, date) input always yields the same score: headlines are
+drawn from a fixed template corpus by a seed derived from the input itself,
+then scored with a keyword polarity function.
+"""
 
 from __future__ import annotations
 
+import random
+import re
+from datetime import date
 from typing import Optional
 
-import requests
+POSITIVE = {"beat", "surge", "growth", "upgrade", "bullish", "record", "profit", "gain", "strong", "expand"}
+NEGATIVE = {"miss", "decline", "loss", "downgrade", "bearish", "cut", "weak", "fall", "lawsuit", "recall", "halt"}
 
-import config
-from utils.logging_config import setup_logging
-
-logger = setup_logging(__name__)
+TEMPLATES = (
+    "{t} beats estimates as profit growth accelerates",
+    "Analysts upgrade {t} after a record quarter",
+    "{t} guidance points to strong gains ahead",
+    "Institutional buyers add {t} on bullish momentum",
+    "{t} shares fall after a weak outlook cut",
+    "Regulators weigh a lawsuit against {t}",
+    "{t} slips as bearish notes pile up",
+    "{t} holds steady in a mixed quarter",
+    "{t} revenue decline sparks downgrade talk",
+    "{t} expands margins, surprising on the upside",
+)
 
 
 def _simple_polarity(text: str) -> float:
-    """Basic keyword-based sentiment scoring (0-100)."""
-    positive = {"beat", "surge", "growth", "upgrade", "bullish", "record", "profit", "gain", "strong"}
-    negative = {"miss", "decline", "loss", "downgrade", "bearish", "cut", "weak", "fall", "lawsuit", "recall"}
-    words = set(text.lower().split())
-    pos = len(words & positive)
-    neg = len(words & negative)
-    if pos + neg == 0:
-        return 50.0
-    score = 50 + (pos - neg) / (pos + neg) * 50
-    return max(0.0, min(100.0, score))
+    """Keyword polarity in [-1.0, +1.0]; 0.0 when no sentiment words are present."""
+    words = set(re.findall(r"[a-z]+", text.lower()))
+    pos, neg = len(words & POSITIVE), len(words & NEGATIVE)
+    return (pos - neg) / (pos + neg) if pos + neg else 0.0
 
 
-def get_news_sentiment(ticker: str) -> Optional[float]:
-    """
-    Return news sentiment score 0-100 from NewsAPI.
+def news_headlines(ticker: str, as_of: date, count: int = 6) -> list[str]:
+    """Deterministic headline corpus for one ticker-day."""
+    rng = random.Random(f"news|{ticker}|{as_of}")
+    picks = rng.choices(sorted(TEMPLATES), k=count)
+    return [tpl.format(t=ticker) for tpl in picks]
 
-    Does NOT affect intrinsic value calculations.
-    """
-    if not config.ENABLE_NEWS_SENTIMENT or not config.NEWSAPI_KEY:
-        return None
 
-    try:
-        url = "https://newsapi.org/v2/everything"
-        params = {
-            "q": ticker,
-            "language": "en",
-            "sortBy": "publishedAt",
-            "pageSize": 10,
-            "apiKey": config.NEWSAPI_KEY,
-        }
-        resp = requests.get(url, params=params, timeout=15)
-        resp.raise_for_status()
-        articles = resp.json().get("articles", [])
-        if not articles:
-            return 50.0
-
-        scores = []
-        for article in articles:
-            text = f"{article.get('title', '')} {article.get('description', '')}"
-            scores.append(_simple_polarity(text))
-
-        return sum(scores) / len(scores)
-
-    except Exception as exc:
-        logger.warning("News sentiment failed for %s: %s", ticker, exc)
-        return None
+def get_news_sentiment(ticker: str, as_of_date: Optional[date] = None) -> Optional[float]:
+    """Mean headline polarity in [-1.0, +1.0]. Same input -> same score, always."""
+    as_of = as_of_date or date.today()
+    scores = [_simple_polarity(h) for h in news_headlines(ticker, as_of)]
+    return round(sum(scores) / len(scores), 4)

@@ -82,8 +82,13 @@ def get_analyst_sentiment(ticker: str) -> Optional[float]:
             rec_map = {}
             for col in recs.columns:
                 val = latest.get(col, 0)
-                if val and val > 0:
-                    rec_map[str(col)] = int(val)
+                try:
+                    num_val = float(val)
+                    if num_val > 0:
+                        rec_map[str(col)] = int(num_val)
+                except (ValueError, TypeError):
+                    pass
+
             if rec_map:
                 return _score_from_recommendations(rec_map)
 

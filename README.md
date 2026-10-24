@@ -1,131 +1,76 @@
 # NASDAQ-100 Intrinsic Value & Market Intelligence Platform
 
-Professional-grade quantitative equity research platform that estimates the intrinsic value of the NASDAQ-100 index by valuing every constituent individually.
+Quantitative equity research platform that estimates the intrinsic value of the NASDAQ-100 by valuing every constituent individually (DCF + multiples, bear/base/bull), aggregating to an index fair-value ratio, and tracking 60 days of price-vs-intrinsic history and deterministic sentiment.
 
-**Core principle: Intrinsic Value ≠ Market Sentiment** — valuation uses only fundamentals; sentiment is reported separately.
+**Core principle: Intrinsic Value ≠ Market Sentiment** — valuation uses only fundamentals; sentiment is reported separately and never feeds valuation.
 
 ## Quick Start
 
 ```bash
-# Install dependencies
 pip install -r requirements.txt
+copy .env.example .env          # optional API keys (works fully offline without them)
 
-# Copy and configure optional API keys
-copy .env.example .env
-
-# Run full pipeline (constituents → valuation → sentiment → DB → reports)
-python main.py --mode full
-
-# Launch dashboard
-streamlit run dashboard/dashboard.py
+python generate_history.py      # deterministic 60-trading-day backfill -> database/history.db
+streamlit run app.py            # 4-tab valuation dashboard (self-bootstraps the DB if missing)
+python main.py --mode full      # live pipeline: constituents -> valuation -> sentiment -> DB -> reports
+pytest -q                       # 23 unit tests
 ```
 
-## CLI Modes
+## The Dashboard (`app.py`)
+
+| Tab | What it shows |
+|-----|---------------|
+| Index Overview & Fair-Value Gap | NDX level vs intrinsic value, fair-value ratio, widest per-name gaps |
+| DCF Bear/Base/Bull vs Multiples | Per-ticker price vs scenario DCF / multiples / blended estimates |
+| Sector Attribution | Each sector's weight × (blended/price − 1) contribution to the index gap |
+| 60-Day Historical Trend & Sentiment | Index price vs intrinsic band, fair-value ratio, sentiment overlay |
+
+Every metric is computed at runtime from `database/history.db` — no hardcoded numbers. If the DB is missing, `app.py` runs `generate_history.py` automatically.
+
+## Pipeline Components
+
+- **`valuation/`** — FCF DCF with bear/base/bull scenarios, sector-median multiples (P/E, P/S, EV/EBITDA), 50/50 blend, 0-100 confidence score (fundamentals only)
+- **`market/`** — sentiment engine: analyst / news / options / institutional pillars, all deterministic scores in [-1, +1] (seeded per ticker-day, no live-API randomness), weighted overall
+- **`index/`** — constituent fetching (Wikipedia + fallback), cap-weighted aggregation to index intrinsic value, sector/contribution analysis
+- **`database/`** — append-only SQLite history (`daily_company_values`, `daily_index`, `sentiment`) via SQLAlchemy
+- **`generate_history.py`** — seeded 60-trading-day backfill: market prices take a mean-reverting gap walk around intrinsic values and converge exactly to the real anchor close; fundamentals stay at the anchor snapshot; idempotent (same output every run)
+- **`reports/`** — daily CSV/XLSX/PDF snapshots
+- **`scheduler/`** + `run_daily.bat` — Windows Task Scheduler daily runs
+- **`dashboard/dashboard.py`** — legacy multipage UI (superseded by `app.py`)
+
+## CLI Modes (`python main.py --mode ...`)
 
 | Mode | Description |
 |------|-------------|
-| `full` | Complete pipeline: valuation + sentiment + reports |
-| `valuation` | Valuation only (no sentiment) |
-| `constituents` | Refresh NASDAQ-100 weights cache |
-| `sentiment` | Sentiment analysis only |
-
-## Windows Task Scheduler
-
-1. Open **Task Scheduler** → Create Basic Task
-2. Set trigger: Daily at 6:30 AM (or your preferred time)
-3. Action: Start a program → `C:\Users\ysing\Projects\nasdaq100-valuation\run_daily.bat`
-4. Or run the scheduler daemon: `python scheduler/scheduler.py`
+| `full` | Valuation + sentiment + reports |
+| `valuation` | Valuation only |
+| `constituents` | Refresh constituent/weights cache |
+| `sentiment` | Deterministic sentiment only |
 
 ## Project Structure
 
 ```
 nasdaq100-valuation/
-├── valuation/        # DCF, multiples, blended, confidence (fundamentals only)
-├── market/           # Sentiment modules (isolated from valuation)
-├── index/            # Constituents, aggregation, sector analysis
-├── meta_portfolio/   # Dynamic multi-strategy allocation engine
-├── database/         # SQLAlchemy ORM + SQLite history
-├── dashboard/        # Streamlit UI (valuation + meta-portfolio)
-├── reports/          # Daily CSV/Excel/PDF output
-├── scheduler/        # Automated daily runs
-└── tests/            # pytest unit tests
+├── app.py             # 4-tab Streamlit dashboard (self-bootstrapping)
+├── generate_history.py# Deterministic 60-day history backfill
+├── main.py            # CLI pipeline entry point
+├── valuation/         # DCF, multiples, blended, confidence
+├── market/            # Deterministic sentiment (isolated from valuation)
+├── index/             # Constituents, aggregation, sector analysis
+├── database/          # SQLAlchemy ORM + SQLite history
+├── utils/             # Data provider, models, logging, history queries
+├── reports/           # Daily CSV/XLSX/PDF output
+├── scheduler/         # Automated daily runs
+└── tests/             # pytest unit tests (23)
 ```
 
 ## Configuration
 
-All assumptions in `config.py`:
-- Discount rate, terminal growth, projection years
-- DCF/multiples blend weights
-- API keys via `.env`
-- Cache TTL, database paths
+All assumptions live in `config.py`: discount rate (10%), terminal growth (2.5%), projection years (5), blend weights, scenario probabilities (20/60/20), sentiment weights, cache TTLs, DB/report paths. API keys are optional via `.env` — the platform runs fully offline from cached fundamentals.
 
-## Testing
+## Reproducibility
 
-```bash
-pytest tests/ -v
-```
-
-## Meta-Portfolio Engine
-
-Dynamic multi-strategy allocator across real ETF proxies (**MTUM**, **USMV**, **VIXY**):
-
-- 60-day rolling vol / covariance
-- Allocators: inverse-vol, minimum variance, max diversification (net of 10bps turnover)
-- Benchmarks: equal-weight and 60/40
-- Regime analysis + attribution
-- **Finance pack** (IB / general finance): investment memo PDF, Excel workbook, interview prep
-
-```bash
-# Run backtest + export Excel + PDF memo (uses cached prices after first download)
-python -m meta_portfolio
-
-# Refresh market data
-python -m meta_portfolio --force-download
-
-# Interactive dashboard
-streamlit run dashboard/meta_portfolio.py
-```
-
-Interview deliverables live in [`meta_portfolio/reports/`](meta_portfolio/reports/):
-
-| File | Purpose |
-|------|---------|
-| `allocation_memo.pdf` | 2–3 page investment memo (club-branded) |
-| `meta_portfolio_analysis.xlsx` | Returns, weights, performance, regimes, attribution |
-| `QUANT_CLUB.md` | Quant Club one-pager + resume line |
-| `quant_club_deck.md` | 5-slide finance-only club deck |
-| `STRATEGY_RATIONALE.md` | Factor / macro framing of each sleeve |
-| `EXHIBIT_CAPTIONS.md` | One-sentence chart takeaways |
-| `INTERVIEW_PREP.md` | 60-sec pitch + likely Q&A |
-
-### Quant Club, BITS Pilani
-
-Independent research case study on multi-strategy portfolio allocation (portfolio construction / risk vertical). Finance-first narrative: sleeves, regimes, mandate trade-offs — not software architecture.
-
-See [`meta_portfolio/reports/QUANT_CLUB.md`](meta_portfolio/reports/QUANT_CLUB.md) and [`allocation_memo.pdf`](meta_portfolio/reports/allocation_memo.pdf).
-
-## FirstClub Funnel Teardown
-
-End-to-end product teardown of FirstClub's install-to-first-order funnel: App Store review synthesis, 1.2M+ order dataset analysis, competitive benchmarks (Blinkit, Zepto, Instamart), 8 ICE-scored growth experiments, and CAC/LTV simulator at 1M-order scale.
-
-```bash
-# Run analytics pipeline (generates synthetic 1.2M order dataset)
-python -m firstclub
-
-# Interactive dashboard
-streamlit run dashboard/firstclub.py
-```
-
-Deliverables in [`firstclub/reports/`](firstclub/reports/):
-
-| File | Purpose |
-|------|---------|
-| `GROWTH_MEMO.md` | Executive summary of funnel gaps |
-| `ROADMAP_30_60_90.md` | Phased growth roadmap |
-| `EVENT_TAXONOMY.md` | Analytics event schema |
-| `CITY_LAUNCH_PLAYBOOK.md` | City expansion runbook |
-| `INTERVIEW_PREP.md` | 60-sec pitch + Q&A |
-| `prds/` | 8 mini PRDs (one per ICE experiment) |
+Fixed seeds everywhere: `generate_history.py` (numpy seed 20260809) and the sentiment engine (per-pillar/per-ticker/per-day `random.Random` seeds) make every number reproducible. Re-running the generator is bit-identical (verified).
 
 ## License
 

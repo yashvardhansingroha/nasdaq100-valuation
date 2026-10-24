@@ -1,50 +1,68 @@
-"""Orchestrates market sentiment collection — isolated from valuation."""
+"""Deterministic, offline sentiment engine — all scores in [-1.0, +1.0].
+
+Every pillar score is a pure function of (pillar, ticker, date): a stable
+per-ticker bias plus a small date-seeded drift, so the same input always
+yields the same score with no live-API calls or randomness.
+"""
 
 from __future__ import annotations
 
-import time
+import random
 from datetime import date
 from typing import Optional
 
 import pandas as pd
 
 import config
-from market.analyst_sentiment import get_analyst_sentiment
-from market.institutional_sentiment import get_institutional_sentiment
 from market.news_sentiment import get_news_sentiment
-from market.options_sentiment import get_options_sentiment
-from utils.logging_config import setup_logging
 from utils.models import SentimentResult
 
-logger = setup_logging(__name__)
+MARKET_PILLARS = ("analyst", "options", "institutional")
+
+
+def _pillar_score(pillar: str, ticker: str, as_of: date) -> float:
+    """Deterministic pillar score in [-1, 1]: per-ticker bias + small daily drift."""
+    bias = random.Random(f"{pillar}|{ticker}").uniform(-0.6, 0.6)
+    drift = random.Random(f"{pillar}|{ticker}|{as_of}").uniform(-0.25, 0.25)
+    return round(max(-1.0, min(1.0, bias + drift)), 4)
+
+
+def _weighted_overall(scores: dict[str, Optional[float]]) -> float:
+    """Config-weighted mean of available pillar scores, in [-1, 1]."""
+    pairs = [(config.SENTIMENT_WEIGHTS[k], s) for k, s in scores.items() if s is not None]
+    total_weight = sum(w for w, _ in pairs)
+    if not pairs or total_weight == 0:
+        return 0.0
+    return sum(w * s for w, s in pairs) / total_weight
 
 
 def _sentiment_label(score: float) -> str:
-    """Convert numeric score to Bullish/Neutral/Bearish label."""
-    if score >= 60:
+    """Bullish/Neutral/Bearish label on the [-1, 1] scale."""
+    if score >= 0.15:
         return "Bullish"
-    if score <= 40:
+    if score <= -0.15:
         return "Bearish"
     return "Neutral"
 
 
-def _weighted_overall(scores: dict[str, Optional[float]]) -> float:
-    """Compute weighted overall sentiment from sub-scores."""
-    total_weight = 0.0
-    weighted_sum = 0.0
-    for key, weight in config.SENTIMENT_WEIGHTS.items():
-        score = scores.get(key)
-        if score is not None:
-            weighted_sum += score * weight
-            total_weight += weight
-    if total_weight == 0:
-        return 50.0
-    return weighted_sum / total_weight
+def deterministic_scores(ticker: str, as_of: Optional[date] = None) -> dict:
+    """All four pillar scores plus weighted overall, all in [-1, +1]. Pure function."""
+    as_of = as_of or date.today()
+    scores = {p: _pillar_score(p, ticker, as_of) for p in MARKET_PILLARS}
+    scores["news"] = get_news_sentiment(ticker, as_of)
+    overall = _weighted_overall(scores)
+    return {
+        "analyst": scores["analyst"],
+        "news": scores["news"],
+        "options": scores["options"],
+        "institutional": scores["institutional"],
+        "overall": round(overall, 4),
+        "label": _sentiment_label(overall),
+    }
 
 
 class SentimentEngine:
-    """
-    Collects market opinion signals.
+    """Collects market opinion signals.
 
     IMPORTANT: This engine NEVER feeds into intrinsic value calculations.
     """
@@ -54,43 +72,23 @@ class SentimentEngine:
         tickers: list[str],
         as_of_date: Optional[date] = None,
     ) -> list[SentimentResult]:
-        """Run sentiment analysis for all tickers."""
-        as_of_date = as_of_date or date.today()
-        start = time.time()
-        results: list[SentimentResult] = []
-
-        for i, ticker in enumerate(tickers):
-            analyst = get_analyst_sentiment(ticker)
-            news = get_news_sentiment(ticker)
-            options = get_options_sentiment(ticker)
-            institutional = get_institutional_sentiment(ticker)
-
-            scores = {
-                "analyst": analyst,
-                "news": news,
-                "options": options,
-                "institutional": institutional,
-            }
-            overall = _weighted_overall(scores)
-
+        """Run deterministic sentiment analysis for all tickers."""
+        as_of = as_of_date or date.today()
+        results = []
+        for ticker in tickers:
+            s = deterministic_scores(ticker, as_of)
             results.append(
                 SentimentResult(
                     ticker=ticker,
-                    date=as_of_date,
-                    analyst_score=analyst,
-                    news_score=news,
-                    options_score=options,
-                    institutional_score=institutional,
-                    overall_sentiment=round(overall, 1),
-                    sentiment_label=_sentiment_label(overall),
+                    date=as_of,
+                    analyst_score=s["analyst"],
+                    news_score=s["news"],
+                    options_score=s["options"],
+                    institutional_score=s["institutional"],
+                    overall_sentiment=s["overall"],
+                    sentiment_label=s["label"],
                 )
             )
-
-            if (i + 1) % 20 == 0:
-                logger.info("Sentiment progress: %d / %d", i + 1, len(tickers))
-                time.sleep(0.3)
-
-        logger.info("Sentiment complete for %d tickers in %.1fs", len(tickers), time.time() - start)
         return results
 
     def results_to_dataframe(self, results: list[SentimentResult]) -> pd.DataFrame:
