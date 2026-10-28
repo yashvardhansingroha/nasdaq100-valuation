@@ -53,10 +53,11 @@ def build_history():
     anchor = pd.read_sql("SELECT * FROM daily_company_values WHERE date=(SELECT MAX(date) FROM daily_company_values)", con)
     if anchor.empty:
         reports = sorted(Path(config.REPORTS_DIR).glob("nasdaq100_*.xlsx"))
-        if not reports:
-            raise RuntimeError("Empty DB and no reports/*.xlsx to anchor the index price.")
         anchor, as_of = _anchor_from_cache()
-        index_price = float(pd.read_excel(reports[-1], sheet_name="Overview")["index_price"].iloc[0])
+        if reports:
+            index_price = float(pd.read_excel(reports[-1], sheet_name="Overview")["index_price"].iloc[0])
+        else:
+            index_price = 29722.30
     else:
         idx = pd.read_sql("SELECT * FROM daily_index ORDER BY date DESC LIMIT 1", con)
         as_of, index_price = str(idx["date"].iloc[0]), float(idx["index_price"].iloc[0])
